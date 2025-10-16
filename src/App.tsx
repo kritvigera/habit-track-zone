@@ -9,6 +9,11 @@ import Todos from "./pages/Todos";
 import Water from "./pages/Water";
 import Pomodoro from "./pages/Pomodoro";
 import Habits from "./pages/Habits";
+import Schedule from "./pages/Schedule";
+import Journal from "./pages/Journal";
+import Workouts from "./pages/Workouts";
+import Nutrition from "./pages/Nutrition";
+import Sleep from "./pages/Sleep";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -26,12 +31,11 @@ const App = () => (
             <Route path="/water" element={<Water />} />
             <Route path="/pomodoro" element={<Pomodoro />} />
             <Route path="/habits" element={<Habits />} />
-            {/* Placeholder routes for other sections */}
-            <Route path="/schedule" element={<Dashboard />} />
-            <Route path="/journal" element={<Dashboard />} />
-            <Route path="/workouts" element={<Dashboard />} />
-            <Route path="/nutrition" element={<Dashboard />} />
-            <Route path="/sleep" element={<Dashboard />} />
+            <Route path="/schedule" element={<Schedule />} />
+            <Route path="/journal" element={<Journal />} />
+            <Route path="/workouts" element={<Workouts />} />
+            <Route path="/nutrition" element={<Nutrition />} />
+            <Route path="/sleep" element={<Sleep />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Layout>
