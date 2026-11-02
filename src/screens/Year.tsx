@@ -8,6 +8,7 @@ import {
   newId,
   useData,
 } from "../lib/store";
+import ConfirmButton from "../lib/ConfirmButton";
 import { daysBetween, shortDate, toKey, todayKey } from "../lib/dates";
 
 interface Props {
@@ -48,10 +49,8 @@ export default function Year({ store, openDay }: Props) {
             onDelete={
               data.goals.some((g) => g.id === editing.id)
                 ? () => {
-                    if (window.confirm(`Remove “${editing.name}”?`)) {
-                      removeGoal(editing.id);
-                      setEditing(null);
-                    }
+                    removeGoal(editing.id);
+                    setEditing(null);
                   }
                 : undefined
             }
@@ -252,9 +251,7 @@ function GoalForm({
 
       <div className="form__actions">
         {onDelete && (
-          <button type="button" className="link link--soft" onClick={onDelete}>
-            remove
-          </button>
+          <ConfirmButton label="remove" confirmLabel="tap again to remove" onConfirm={onDelete} />
         )}
         <span style={{ flex: 1 }} />
         <button type="button" className="pill" onClick={onCancel}>

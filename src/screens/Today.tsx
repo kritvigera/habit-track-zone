@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { MOODS, useData } from "../lib/store";
 import { addDays, friendlyDate, todayKey } from "../lib/dates";
 
@@ -14,6 +15,8 @@ export default function Today({ store, date, setDate }: Props) {
   const water = day.water ?? 0;
   const meditation = day.meditation ?? 0;
   const isToday = date === todayKey();
+  const [otherOpen, setOtherOpen] = useState(false);
+  const PRESETS = [5, 10, 15, 20, 30];
   const customGoals = data.goals.filter(
     (g) => g.source === "custom" && date >= g.start && date <= g.end,
   );
@@ -96,7 +99,7 @@ export default function Today({ store, date, setDate }: Props) {
           <span className="quiet">{meditation > 0 ? `${meditation} min` : "not yet"}</span>
         </div>
         <div className="chips chips--even">
-          {[5, 10, 15, 20, 30].map((m) => (
+          {PRESETS.map((m) => (
             <button
               key={m}
               className={"chip" + (meditation === m ? " chip--on" : "")}
@@ -107,17 +110,27 @@ export default function Today({ store, date, setDate }: Props) {
             </button>
           ))}
           <button
-            className={"chip" + (meditation > 0 && ![5, 10, 15, 20, 30].includes(meditation) ? " chip--on" : "")}
-            onClick={() => {
-              const v = window.prompt("Minutes meditated", meditation ? String(meditation) : "");
-              if (v === null) return;
-              const n = Math.max(0, Math.round(Number(v)));
-              if (!Number.isNaN(n)) updateDay(date, { meditation: n });
-            }}
+            className={"chip" + (otherOpen || (meditation > 0 && !PRESETS.includes(meditation)) ? " chip--on" : "")}
+            onClick={() => setOtherOpen(!otherOpen)}
           >
             other
           </button>
         </div>
+        {otherOpen && (
+          <label className="inline-field">
+            <input
+              id="meditation-minutes"
+              className="field"
+              type="number"
+              inputMode="numeric"
+              min={0}
+              placeholder="Minutes"
+              value={meditation || ""}
+              onChange={(e) => updateDay(date, { meditation: Math.max(0, Math.round(Number(e.target.value) || 0)) })}
+            />
+            <span className="quiet">min</span>
+          </label>
+        )}
       </section>
 
       <section className="card">
@@ -135,6 +148,7 @@ export default function Today({ store, date, setDate }: Props) {
         </div>
         {day.workout && (
           <input
+            id="workout-note"
             className="field"
             placeholder="What did you do? (optional)"
             value={day.workoutNote ?? ""}

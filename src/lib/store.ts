@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { daysBetween, todayKey } from "./dates";
 
 export type Mood = 1 | 2 | 3 | 4 | 5;
@@ -32,6 +32,7 @@ export interface Data {
   days: Record<string, DayLog>;
   goals: Goal[];
   settings: Settings;
+  updatedAt?: number; // ms timestamp of the last change, used to pick the newest copy when syncing
 }
 
 const STORAGE_KEY = "quiet-tracker-v1";
@@ -49,6 +50,7 @@ export function parseData(raw: unknown): Data {
     days: r.days && typeof r.days === "object" ? r.days : {},
     goals: Array.isArray(r.goals) ? r.goals : [],
     settings: { ...base.settings, ...(r.settings ?? {}) },
+    updatedAt: typeof r.updatedAt === "number" ? r.updatedAt : 0,
   };
 }
 
@@ -61,23 +63,122 @@ function load(): Data {
   }
 }
 
+export type SyncState = "local" | "connecting" | "synced" | "offline";
+
+// Minimal shape of the claude.ai page runtime, present only when the app runs as a Claude artifact.
+type DocSnap = { exists: boolean; data(): Record<string, unknown> | undefined; metadata: { fromCache: boolean } };
+type DocRef = {
+  set(d: Record<string, unknown>): Promise<void>;
+  onSnapshot(next: (s: DocSnap) => void, err?: (e: { code: string }) => void): () => void;
+};
+type ClaudeRuntime = { use(name: string): Promise<unknown> };
+
+function hasContent(d: Data) {
+  return Object.keys(d.days).length > 0 || d.goals.length > 0;
+}
+
 export function useData() {
-  const [data, setData] = useState<Data>(load);
+  const [data, setRaw] = useState<Data>(load);
+  const [sync, setSync] = useState<SyncState>("local");
+  const remote = useRef<DocRef | null>(null);
+  const dirty = useRef(false); // a local change is waiting to be saved remotely
+  const latest = useRef(data);
+  latest.current = data;
+
+  // Every change made in the app goes through here, stamped with the time.
+  const setData = useCallback((fn: Data | ((d: Data) => Data)) => {
+    dirty.current = true;
+    setRaw((d) => ({ ...(typeof fn === "function" ? fn(d) : fn), updatedAt: Date.now() }));
+  }, []);
 
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     } catch {
-      /* storage full or unavailable — nothing sensible to do */
+      /* storage full or unavailable */
     }
   }, [data]);
+
+  // Sync with the Claude account when running as a claude.ai artifact.
+  useEffect(() => {
+    const claude = (window as unknown as { claude?: ClaudeRuntime }).claude;
+    if (!claude?.use) return;
+    let unsub: (() => void) | undefined;
+    let cancelled = false;
+    setSync("connecting");
+    (async () => {
+      const [db, user] = (await Promise.all([claude.use("db"), claude.use("user")])) as [
+        { doc(p: string): DocRef } | null,
+        { id(): Promise<string | null> } | null,
+      ];
+      const id = user ? await user.id() : null;
+      if (cancelled) return;
+      if (!db || !id) {
+        setSync("local");
+        return;
+      }
+      const ref = db.doc(`data/users/${id}/tracker`);
+      const timer = window.setTimeout(() => setSync("offline"), 10_000);
+      unsub = ref.onSnapshot(
+        (snap) => {
+          if (snap.metadata.fromCache) return;
+          window.clearTimeout(timer);
+          remote.current = ref;
+          setSync("synced");
+          const local = latest.current;
+          if (snap.exists) {
+            const r = parseData(snap.data());
+            if ((r.updatedAt ?? 0) > (local.updatedAt ?? 0)) {
+              setRaw(r); // newer copy from another device: take it, don't write it back
+              return;
+            }
+            if ((r.updatedAt ?? 0) < (local.updatedAt ?? 0)) dirty.current = true;
+          } else if (hasContent(local)) {
+            dirty.current = true; // first time: upload what's on this phone
+          }
+          if (dirty.current) setRaw((d) => ({ ...d })); // nudge the save effect
+        },
+        () => {
+          window.clearTimeout(timer);
+          setSync("offline");
+        },
+      );
+    })();
+    return () => {
+      cancelled = true;
+      unsub?.();
+    };
+  }, []);
+
+  // Save to the account a moment after changes settle, one write at a time.
+  const saving = useRef(false);
+  useEffect(() => {
+    if (!dirty.current || !remote.current || sync !== "synced") return;
+    const t = window.setTimeout(async function save() {
+      if (saving.current) {
+        window.setTimeout(save, 500);
+        return;
+      }
+      if (!dirty.current || !remote.current) return;
+      saving.current = true;
+      dirty.current = false;
+      try {
+        await remote.current.set(JSON.parse(JSON.stringify(latest.current)));
+      } catch {
+        dirty.current = true;
+      } finally {
+        saving.current = false;
+      }
+    }, 800);
+    return () => window.clearTimeout(t);
+  }, [data, sync]);
 
   const updateDay = useCallback((key: string, patch: Partial<DayLog>) => {
     setData((d) => ({
       ...d,
       days: { ...d.days, [key]: { ...d.days[key], ...patch } },
     }));
-  }, []);
+  }, [setData]);
 
   const toggleCheck = useCallback((key: string, goalId: string) => {
     setData((d) => {
@@ -87,7 +188,7 @@ export function useData() {
       else checks[goalId] = true;
       return { ...d, days: { ...d.days, [key]: { ...day, checks } } };
     });
-  }, []);
+  }, [setData]);
 
   const saveGoal = useCallback((goal: Goal) => {
     setData((d) => {
@@ -97,17 +198,17 @@ export function useData() {
         goals: exists ? d.goals.map((g) => (g.id === goal.id ? goal : g)) : [...d.goals, goal],
       };
     });
-  }, []);
+  }, [setData]);
 
   const removeGoal = useCallback((id: string) => {
     setData((d) => ({ ...d, goals: d.goals.filter((g) => g.id !== id) }));
-  }, []);
+  }, [setData]);
 
   const updateSettings = useCallback((patch: Partial<Settings>) => {
     setData((d) => ({ ...d, settings: { ...d.settings, ...patch } }));
-  }, []);
+  }, [setData]);
 
-  return { data, setData, updateDay, toggleCheck, saveGoal, removeGoal, updateSettings };
+  return { data, sync, setData, updateDay, toggleCheck, saveGoal, removeGoal, updateSettings };
 }
 
 /** Did this day count towards the goal? */

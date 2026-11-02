@@ -38,6 +38,7 @@
 html,
 body {
   background: var(--bg);
+  min-height: 100%;
   color: var(--ink);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -60,7 +61,10 @@ button:disabled {
 .screen {
   max-width: 520px;
   margin: 0 auto;
-  padding: calc(env(safe-area-inset-top) + 20px) 16px calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 24px);
+  padding-top: 20px;
+  padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 24px);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -442,6 +446,26 @@ input[type="date"].field {
   padding-top: 4px;
 }
 
+.inline-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.inline-field .field {
+  width: 120px;
+}
+.is-armed {
+  color: #a2665a;
+}
+.notice {
+  background: var(--wash);
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 /* Year grid */
 .yearpick {
   display: flex;
@@ -491,7 +515,10 @@ input[type="date"].field {
   display: flex;
   justify-content: center;
   gap: 4px;
-  padding: 6px 16px calc(env(safe-area-inset-bottom) + 6px);
+  padding-top: 6px;
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 6px);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
   background: rgba(251, 250, 248, 0.94);
   -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
@@ -514,4 +541,9 @@ input[type="date"].field {
   * {
     transition: none !important;
   }
+}
+
+.stack .pill--wide {
+  flex: none;
+  width: 100%;
 }
