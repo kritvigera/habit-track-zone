@@ -1,73 +1,34 @@
-# Welcome to your Lovable project
+# Quiet Tracker
 
-## Project info
+A calm, simple tracker for your iPhone. White and soft pastels, nothing flashing, nothing to chase.
 
-**URL**: https://lovable.dev/projects/674fcf71-c9c5-435a-a385-a2deafcea4ba
+**Today** — log your mood, glasses of water, meditation minutes and whether you worked out. Tap ‹ to fill in earlier days. Any "check it off" goals you've set (like *Write*) show up here too.
 
-## How can I edit this code?
+**Year** — set goals like *Meditate 180 days this year* or *Write 180 days until June 30*. Each goal shows how many days are done, how many are left, and a small marker for where an even pace would be. Below that, a quiet year grid for mood, water, meditation, workouts or any of your own goals. Tap a day to open it.
 
-There are several ways of editing your application.
+**Settings** — daily water goal, save/restore a backup, erase everything.
 
-**Use Lovable**
+All data stays on your phone (no account, no server).
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/674fcf71-c9c5-435a-a385-a2deafcea4ba) and start prompting.
+## Put it on your iPhone
 
-Changes made via Lovable will be committed automatically to this repo.
+The app is a web app you install to your Home Screen. It opens full screen and works offline.
 
-**Use your preferred IDE**
+1. Host it somewhere. Easiest with this repo:
+   - **GitHub Pages:** in the repo on GitHub go to *Settings → Pages* and set *Source* to **GitHub Actions**. Every push to `main` then deploys automatically (workflow in `.github/workflows/deploy.yml`). Your address will be `https://<your-username>.github.io/habit-track-zone/`.
+   - **Lovable:** *Share → Publish* also works.
+2. Open that address in **Safari** on your iPhone.
+3. Tap the **Share** button → **Add to Home Screen**.
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+Save a backup from Settings now and then. iOS keeps Home Screen app data, but a backup protects you if you change phones.
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
+## Develop
 
 ```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+npm install
+npm run dev     # local dev server
+npm run build   # production build in dist/
 ```
 
-**Edit a file directly in GitHub**
-
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
-
-**Use GitHub Codespaces**
-
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
-
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/674fcf71-c9c5-435a-a385-a2deafcea4ba) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+Built with Vite, React and TypeScript. Code lives in `src/`:
+`lib/store.ts` (data + goal maths), `lib/dates.ts`, and the three screens in `screens/`.
