@@ -14,11 +14,12 @@ import { daysBetween, shortDate, toKey, todayKey } from "../lib/dates";
 interface Props {
   store: ReturnType<typeof useData>;
   openDay: (key: string) => void;
+  openMonth: (y: number, m: number) => void;
 }
 
 const MONTHS = ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"];
 
-export default function Year({ store, openDay }: Props) {
+export default function Year({ store, openDay, openMonth }: Props) {
   const { data, saveGoal, removeGoal } = store;
   const [editing, setEditing] = useState<Goal | null>(null);
 
@@ -72,7 +73,7 @@ export default function Year({ store, openDay }: Props) {
         )}
       </section>
 
-      <YearGrid store={store} openDay={openDay} />
+      <YearGrid store={store} openDay={openDay} openMonth={openMonth} />
     </>
   );
 }
@@ -267,7 +268,7 @@ function GoalForm({
 
 type Metric = { id: string; label: string; goal?: Goal };
 
-function YearGrid({ store, openDay }: Props) {
+function YearGrid({ store, openDay, openMonth }: Props) {
   const { data } = store;
   const [year, setYear] = useState(new Date().getFullYear());
   const [metricId, setMetricId] = useState("mood");
@@ -347,7 +348,13 @@ function YearGrid({ store, openDay }: Props) {
       <div className="grid" role="grid" aria-label={`${metric.label} in ${year}`}>
         {rows.map((cells, m) => (
           <div className="grid__row" key={m} role="row">
-            <span className="grid__month">{MONTHS[m]}</span>
+            <button
+              className="grid__month"
+              aria-label={new Date(year, m, 1).toLocaleDateString(undefined, { month: "long" })}
+              onClick={() => openMonth(year, m)}
+            >
+              {MONTHS[m]}
+            </button>
             {cells.map((c, i) =>
               c ? (
                 <button
@@ -366,7 +373,7 @@ function YearGrid({ store, openDay }: Props) {
         ))}
       </div>
       <p className="quiet">
-        {count} {count === 1 ? "day" : "days"} {metric.id === "mood" || metric.id === "water" ? "logged" : "marked"} in {year}. Tap a day to open it.
+        {count} {count === 1 ? "day" : "days"} {metric.id === "mood" || metric.id === "water" ? "logged" : "marked"} in {year}. Tap a day to open it, or a letter for the month.
       </p>
     </section>
   );
