@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   Goal,
+  Habit,
   GoalSource,
   SOURCE_LABELS,
   dayCounts,
@@ -42,6 +43,7 @@ export default function Year({ store, openDay, openMonth }: Props) {
         {editing && (
           <GoalForm
             initial={editing}
+            habits={data.habits.filter((h) => h.kind === "do")}
             onCancel={() => setEditing(null)}
             onSave={(g) => {
               saveGoal(g);
@@ -136,18 +138,20 @@ function GoalRow({ goal, store, onEdit }: { goal: Goal; store: Props["store"]; o
 
 function GoalForm({
   initial,
+  habits,
   onSave,
   onCancel,
   onDelete,
 }: {
   initial: Goal;
+  habits: Habit[];
   onSave: (g: Goal) => void;
   onCancel: () => void;
   onDelete?: () => void;
 }) {
   const [g, setG] = useState<Goal>(initial);
   const span = g.start && g.end && g.end >= g.start ? daysBetween(g.start, g.end) : 0;
-  const valid = g.name.trim() !== "" && g.target > 0 && span > 0;
+  const valid = g.name.trim() !== "" && g.target > 0 && span > 0 && (g.source !== "habit" || !!g.habitId);
   const year = new Date().getFullYear();
 
   const setSource = (source: GoalSource) => {
@@ -157,10 +161,13 @@ function GoalForm({
       water: "Drink enough water",
       mood: "Check in with my mood",
     };
+    if (source === "habit" && habits[0]) names.habit = habits[0].name;
+    const auto = [...Object.values(names), ...habits.map((h) => h.name)];
     setG((cur) => ({
       ...cur,
       source,
-      name: cur.name.trim() === "" || Object.values(names).includes(cur.name) ? names[source] ?? "" : cur.name,
+      habitId: source === "habit" ? (cur.habitId ?? habits[0]?.id) : undefined,
+      name: cur.name.trim() === "" || auto.includes(cur.name) ? names[source] ?? "" : cur.name,
     }));
   };
 
@@ -175,13 +182,37 @@ function GoalForm({
       <label>
         <span>Counts when</span>
         <select className="field" value={g.source} onChange={(e) => setSource(e.target.value as GoalSource)}>
-          {(Object.keys(SOURCE_LABELS) as GoalSource[]).map((s) => (
-            <option key={s} value={s}>
-              {SOURCE_LABELS[s]}
-            </option>
-          ))}
+          {(Object.keys(SOURCE_LABELS) as GoalSource[])
+            .filter((s) => s !== "habit" || habits.length > 0)
+            .map((s) => (
+              <option key={s} value={s}>
+                {SOURCE_LABELS[s]}
+              </option>
+            ))}
         </select>
       </label>
+
+      {g.source === "habit" && (
+        <label>
+          <span>Which habit</span>
+          <select
+            id="goal-habit"
+            className="field"
+            value={g.habitId ?? ""}
+            onChange={(e) => {
+              const h = habits.find((x) => x.id === e.target.value);
+              const prev = habits.find((x) => x.id === g.habitId);
+              setG({ ...g, habitId: e.target.value, name: !g.name || g.name === prev?.name ? h?.name ?? g.name : g.name });
+            }}
+          >
+            {habits.map((h) => (
+              <option key={h.id} value={h.id}>
+                {h.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
 
       <label>
         <span>Name</span>
@@ -266,7 +297,7 @@ function GoalForm({
   );
 }
 
-type Metric = { id: string; label: string; goal?: Goal };
+type Metric = { id: string; label: string; goal?: Goal; habit?: Habit };
 
 function YearGrid({ store, openDay, openMonth }: Props) {
   const { data } = store;
@@ -278,6 +309,7 @@ function YearGrid({ store, openDay, openMonth }: Props) {
     { id: "water", label: "Water" },
     { id: "meditation", label: "Meditation" },
     { id: "workout", label: "Workout" },
+    ...data.habits.map((h) => ({ id: h.id, label: h.name, habit: h })),
     ...data.goals.filter((g) => g.source === "custom").map((g) => ({ id: g.id, label: g.name, goal: g })),
   ];
   const metric = metrics.find((m) => m.id === metricId) ?? metrics[0];
@@ -300,6 +332,10 @@ function YearGrid({ store, openDay, openMonth }: Props) {
       case "workout":
         return d.workout ? { background: "var(--workout)" } : undefined;
       default:
+        if (metric.habit)
+          return d.checks?.[metric.habit.id]
+            ? { background: metric.habit.kind === "avoid" ? "var(--avoid)" : "var(--custom)" }
+            : undefined;
         return metric.goal && dayCounts(metric.goal, d, data.settings)
           ? { background: "var(--custom)" }
           : undefined;

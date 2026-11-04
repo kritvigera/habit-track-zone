@@ -18,6 +18,8 @@ export default function Month({ store, month, setMonth, openDay }: Props) {
   const lead = (new Date(y, m, 1).getDay() + 6) % 7; // Monday first
   const keys = Array.from({ length: len }, (_, i) => toKey(new Date(y, m, i + 1)));
   const customGoals = data.goals.filter((g) => g.source === "custom");
+  const doHabits = data.habits.filter((h) => h.kind === "do");
+  const avoidHabits = data.habits.filter((h) => h.kind === "avoid");
   const waterGoal = data.settings.waterGoal;
 
   const shift = (n: number) => {
@@ -49,6 +51,7 @@ export default function Month({ store, month, setMonth, openDay }: Props) {
       moodSum += d.mood;
     }
     for (const g of customGoals) if (dayCounts(g, d, data.settings)) goalDays[g.id] = (goalDays[g.id] ?? 0) + 1;
+    for (const h of data.habits) if (d.checks?.[h.id]) goalDays[h.id] = (goalDays[h.id] ?? 0) + 1;
   }
   const avgMood = moodDays ? MOODS[Math.round(moodSum / moodDays) - 1] : undefined;
 
@@ -84,7 +87,9 @@ export default function Month({ store, month, setMonth, openDay }: Props) {
           {keys.map((k, i) => {
             const d = data.days[k];
             const future = k > today;
-            const anyGoal = !!d && customGoals.some((g) => dayCounts(g, d, data.settings));
+            const anyGoal =
+              !!d && (customGoals.some((g) => dayCounts(g, d, data.settings)) || doHabits.some((h) => d.checks?.[h.id]));
+            const anyAvoid = !!d && avoidHabits.some((h) => d.checks?.[h.id]);
             return (
               <button
                 key={k}
@@ -105,6 +110,7 @@ export default function Month({ store, month, setMonth, openDay }: Props) {
                   {(d?.meditation ?? 0) > 0 && <i className="mk mk--med" />}
                   {d?.workout && <i className="mk mk--work" />}
                   {anyGoal && <i className="mk mk--goal" />}
+                  {anyAvoid && <i className="mk mk--avoid" />}
                 </span>
               </button>
             );
@@ -121,9 +127,14 @@ export default function Month({ store, month, setMonth, openDay }: Props) {
           <span>
             <i className="mk mk--work" /> workout
           </span>
-          {customGoals.length > 0 && (
+          {(customGoals.length > 0 || doHabits.length > 0) && (
             <span>
-              <i className="mk mk--goal" /> your goals
+              <i className="mk mk--goal" /> habits &amp; goals
+            </span>
+          )}
+          {avoidHabits.length > 0 && (
+            <span>
+              <i className="mk mk--avoid" /> things to avoid
             </span>
           )}
           <span>
@@ -155,7 +166,7 @@ export default function Month({ store, month, setMonth, openDay }: Props) {
             <span>Worked out</span>
             <span className="quiet">{workout} days</span>
           </li>
-          {customGoals.map((g) => (
+          {[...customGoals, ...data.habits].map((g) => (
             <li key={g.id}>
               <span>{g.name}</span>
               <span className="quiet">{goalDays[g.id] ?? 0} days</span>

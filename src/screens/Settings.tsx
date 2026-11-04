@@ -2,13 +2,15 @@ import { useRef, useState } from "react";
 import { parseData, useData } from "../lib/store";
 import { todayKey } from "../lib/dates";
 import ConfirmButton from "../lib/ConfirmButton";
+import { appUrl, quickActions } from "../lib/actions";
 
 interface Props {
   store: ReturnType<typeof useData>;
 }
 
 export default function SettingsScreen({ store }: Props) {
-  const { data, sync, setData, updateSettings } = store;
+  const { data, sync, replaceAll, updateSettings, removeHabit } = store;
+  const [copied, setCopied] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const [msg, setMsg] = useState("");
   const [pending, setPending] = useState<ReturnType<typeof parseData> | null>(null);
@@ -137,7 +139,7 @@ export default function SettingsScreen({ store }: Props) {
               <button
                 className="pill pill--solid"
                 onClick={() => {
-                  setData(pending);
+                  replaceAll(pending);
                   setPending(null);
                   setMsg("Backup restored.");
                 }}
@@ -148,6 +150,72 @@ export default function SettingsScreen({ store }: Props) {
           </div>
         )}
         {msg && <p className="quiet">{msg}</p>}
+      </section>
+
+      <section className="card">
+        <h2>Habits</h2>
+        {data.habits.length === 0 ? (
+          <p className="quiet">No habits yet. Add them from the Habits card on Today.</p>
+        ) : (
+          <ul>
+            {data.habits.map((h) => (
+              <li key={h.id} className="linkrow">
+                <span className="linkrow__text">
+                  <span>{h.name}</span>
+                  <span className="quiet">{h.kind === "avoid" ? "something to avoid" : "something to do"}</span>
+                </span>
+                <ConfirmButton label="remove" confirmLabel="tap again" onConfirm={() => removeHabit(h.id)} />
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="card">
+        <h2>Home Screen widget</h2>
+        <p className="quiet">
+          Use the Shortcuts app to put one-tap buttons on your Home Screen. Each button logs something for today and
+          opens this tracker for a moment, so you can see it worked.
+        </p>
+        <ol className="steps">
+          <li>Copy a link below.</li>
+          <li>
+            Open Shortcuts, tap <b>+</b>, add the action <b>Open URLs</b> and paste the link. Name the shortcut, e.g.
+            “Water”.
+          </li>
+          <li>Do the same for the other buttons you want.</li>
+          <li>
+            Touch and hold the Home Screen, tap <b>Edit → Add Widget</b>, choose <b>Shortcuts</b> and pick the size that
+            shows four buttons. Tap the widget while editing to choose which shortcuts it shows.
+          </li>
+        </ol>
+        <ul>
+          {quickActions(data).map((a) => {
+            const url = `${appUrl()}#${a.hash}`;
+            return (
+              <li key={a.hash} className="linkrow">
+                <span className="linkrow__text">
+                  <span>{a.label}</span>
+                  <span className="linkrow__url">{url}</span>
+                </span>
+                <button
+                  className="pill pill--sm"
+                  onClick={() => {
+                    navigator.clipboard
+                      ?.writeText(url)
+                      .then(() => setCopied(a.hash))
+                      .catch(() => setCopied("fail:" + a.hash));
+                  }}
+                >
+                  {copied === a.hash ? "Copied" : "Copy"}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+        {copied.startsWith("fail:") && (
+          <p className="quiet">Copying isn’t allowed here. Press and hold the link text to select and copy it.</p>
+        )}
       </section>
 
       <section className="card">
@@ -163,7 +231,7 @@ export default function SettingsScreen({ store }: Props) {
           label="Erase everything"
           confirmLabel="Tap again to erase all entries and goals"
           onConfirm={() => {
-            setData(parseData(null));
+            replaceAll(parseData(null));
             setMsg("");
           }}
         />

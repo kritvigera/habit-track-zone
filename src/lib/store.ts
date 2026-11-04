@@ -9,10 +9,11 @@ export interface DayLog {
   meditation?: number; // minutes
   workout?: boolean;
   workoutNote?: string;
-  checks?: Record<string, boolean>; // custom goal id -> done
+  checks?: Record<string, boolean>; // habit or custom goal id -> marked
+  _t?: number; // when this day was last changed, for merging copies
 }
 
-export type GoalSource = "meditation" | "workout" | "water" | "mood" | "custom";
+export type GoalSource = "meditation" | "workout" | "water" | "mood" | "custom" | "habit";
 
 export interface Goal {
   id: string;
@@ -21,6 +22,14 @@ export interface Goal {
   start: string; // YYYY-MM-DD
   end: string; // YYYY-MM-DD
   source: GoalSource;
+  habitId?: string; // when source is "habit"
+}
+
+/** A simple daily mark. "avoid" habits are things you'd rather not do (e.g. ate unhealthy). */
+export interface Habit {
+  id: string;
+  name: string;
+  kind: "do" | "avoid";
 }
 
 export interface Settings {
@@ -31,15 +40,20 @@ export interface Data {
   version: 1;
   days: Record<string, DayLog>;
   goals: Goal[];
+  habits: Habit[];
   settings: Settings;
-  updatedAt?: number; // ms timestamp of the last change, used to pick the newest copy when syncing
+  updatedAt?: number; // last change of any kind
+  metaAt?: number; // last change to goals, habits or settings
+  resetAt?: number; // last erase or restore: older days are dropped when merging
 }
 
 const STORAGE_KEY = "quiet-tracker-v1";
 
 function emptyData(): Data {
-  return { version: 1, days: {}, goals: [], settings: { waterGoal: 8 } };
+  return { version: 1, days: {}, goals: [], habits: [], settings: { waterGoal: 8 } };
 }
+
+const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
 
 export function parseData(raw: unknown): Data {
   const base = emptyData();
@@ -49,9 +63,51 @@ export function parseData(raw: unknown): Data {
     version: 1,
     days: r.days && typeof r.days === "object" ? r.days : {},
     goals: Array.isArray(r.goals) ? r.goals : [],
+    habits: Array.isArray(r.habits) ? r.habits : [],
     settings: { ...base.settings, ...(r.settings ?? {}) },
-    updatedAt: typeof r.updatedAt === "number" ? r.updatedAt : 0,
+    updatedAt: num(r.updatedAt),
+    metaAt: num(r.metaAt),
+    resetAt: num(r.resetAt),
   };
+}
+
+/** Combine two copies: each day keeps its newest version; goals/habits/settings come from the newer copy. */
+export function mergeData(a: Data, b: Data): Data {
+  const resetAt = Math.max(num(a.resetAt), num(b.resetAt));
+  const meta = num(a.metaAt) >= num(b.metaAt) ? a : b;
+  const days: Record<string, DayLog> = {};
+  for (const k of new Set([...Object.keys(a.days), ...Object.keys(b.days)])) {
+    const da = a.days[k];
+    const db = b.days[k];
+    const pick = !db ? da : !da ? db : num(da._t) >= num(db._t) ? da : db;
+    if (pick && num(pick._t) >= resetAt) days[k] = pick;
+  }
+  return {
+    version: 1,
+    days,
+    goals: meta.goals,
+    habits: meta.habits,
+    settings: meta.settings,
+    updatedAt: Math.max(num(a.updatedAt), num(b.updatedAt)),
+    metaAt: Math.max(num(a.metaAt), num(b.metaAt)),
+    resetAt,
+  };
+}
+
+/** Key-order independent JSON, so two equal copies always compare equal. */
+function canon(v: unknown): string {
+  if (Array.isArray(v)) return "[" + v.map(canon).join(",") + "]";
+  if (v && typeof v === "object")
+    return (
+      "{" +
+      Object.keys(v)
+        .filter((k) => (v as Record<string, unknown>)[k] !== undefined)
+        .sort()
+        .map((k) => JSON.stringify(k) + ":" + canon((v as Record<string, unknown>)[k]))
+        .join(",") +
+      "}"
+    );
+  return JSON.stringify(v ?? null);
 }
 
 function load(): Data {
@@ -73,22 +129,21 @@ type DocRef = {
 };
 type ClaudeRuntime = { use(name: string): Promise<unknown> };
 
-function hasContent(d: Data) {
-  return Object.keys(d.days).length > 0 || d.goals.length > 0;
+export function claudeRuntime(): ClaudeRuntime | undefined {
+  return (window as unknown as { claude?: ClaudeRuntime }).claude;
 }
 
 export function useData() {
   const [data, setRaw] = useState<Data>(load);
-  const [sync, setSync] = useState<SyncState>("local");
+  const [sync, setSync] = useState<SyncState>(() => (claudeRuntime()?.use ? "connecting" : "local"));
   const remote = useRef<DocRef | null>(null);
   const dirty = useRef(false); // a local change is waiting to be saved remotely
   const latest = useRef(data);
   latest.current = data;
 
-  // Every change made in the app goes through here, stamped with the time.
-  const setData = useCallback((fn: Data | ((d: Data) => Data)) => {
+  const change = useCallback((fn: (d: Data) => Data) => {
     dirty.current = true;
-    setRaw((d) => ({ ...(typeof fn === "function" ? fn(d) : fn), updatedAt: Date.now() }));
+    setRaw((d) => ({ ...fn(d), updatedAt: Date.now() }));
   }, []);
 
   useEffect(() => {
@@ -101,11 +156,10 @@ export function useData() {
 
   // Sync with the Claude account when running as a claude.ai artifact.
   useEffect(() => {
-    const claude = (window as unknown as { claude?: ClaudeRuntime }).claude;
+    const claude = claudeRuntime();
     if (!claude?.use) return;
     let unsub: (() => void) | undefined;
     let cancelled = false;
-    setSync("connecting");
     (async () => {
       const [db, user] = (await Promise.all([claude.use("db"), claude.use("user")])) as [
         { doc(p: string): DocRef } | null,
@@ -118,25 +172,22 @@ export function useData() {
         return;
       }
       const ref = db.doc(`data/users/${id}/tracker`);
-      const timer = window.setTimeout(() => setSync("offline"), 10_000);
+      const timer = window.setTimeout(() => setSync((s) => (s === "connecting" ? "offline" : s)), 10_000);
       unsub = ref.onSnapshot(
         (snap) => {
           if (snap.metadata.fromCache) return;
           window.clearTimeout(timer);
           remote.current = ref;
-          setSync("synced");
           const local = latest.current;
-          if (snap.exists) {
-            const r = parseData(snap.data());
-            if ((r.updatedAt ?? 0) > (local.updatedAt ?? 0)) {
-              setRaw(r); // newer copy from another device: take it, don't write it back
-              return;
-            }
-            if ((r.updatedAt ?? 0) < (local.updatedAt ?? 0)) dirty.current = true;
-          } else if (hasContent(local)) {
-            dirty.current = true; // first time: upload what's on this phone
+          const r = snap.exists ? parseData(snap.data()) : null;
+          const merged = r ? mergeData(local, r) : local;
+          if (canon(merged) !== canon(local)) setRaw(merged);
+          const hasContent = Object.keys(merged.days).length > 0 || merged.goals.length > 0 || merged.habits.length > 0;
+          if (r ? canon(merged) !== canon(r) : hasContent) {
+            dirty.current = true;
+            if (canon(merged) === canon(local)) setRaw((d) => ({ ...d })); // nudge the save effect
           }
-          if (dirty.current) setRaw((d) => ({ ...d })); // nudge the save effect
+          setSync("synced");
         },
         () => {
           window.clearTimeout(timer);
@@ -173,42 +224,93 @@ export function useData() {
     return () => window.clearTimeout(t);
   }, [data, sync]);
 
-  const updateDay = useCallback((key: string, patch: Partial<DayLog>) => {
-    setData((d) => ({
-      ...d,
-      days: { ...d.days, [key]: { ...d.days[key], ...patch } },
-    }));
-  }, [setData]);
+  const updateDay = useCallback(
+    (key: string, patch: Partial<DayLog> | ((day: DayLog) => Partial<DayLog>)) => {
+      change((d) => {
+        const day = d.days[key] ?? {};
+        const p = typeof patch === "function" ? patch(day) : patch;
+        return { ...d, days: { ...d.days, [key]: { ...day, ...p, _t: Date.now() } } };
+      });
+    },
+    [change],
+  );
 
-  const toggleCheck = useCallback((key: string, goalId: string) => {
-    setData((d) => {
-      const day = d.days[key] ?? {};
-      const checks = { ...(day.checks ?? {}) };
-      if (checks[goalId]) delete checks[goalId];
-      else checks[goalId] = true;
-      return { ...d, days: { ...d.days, [key]: { ...day, checks } } };
-    });
-  }, [setData]);
+  const setCheck = useCallback(
+    (key: string, id: string, on?: boolean) => {
+      updateDay(key, (day) => {
+        const checks = { ...(day.checks ?? {}) };
+        const next = on ?? !checks[id];
+        if (next) checks[id] = true;
+        else delete checks[id];
+        return { checks };
+      });
+    },
+    [updateDay],
+  );
+  const toggleCheck = useCallback((key: string, id: string) => setCheck(key, id), [setCheck]);
 
-  const saveGoal = useCallback((goal: Goal) => {
-    setData((d) => {
-      const exists = d.goals.some((g) => g.id === goal.id);
-      return {
-        ...d,
-        goals: exists ? d.goals.map((g) => (g.id === goal.id ? goal : g)) : [...d.goals, goal],
-      };
-    });
-  }, [setData]);
+  const changeMeta = useCallback(
+    (fn: (d: Data) => Partial<Data>) => change((d) => ({ ...d, ...fn(d), metaAt: Date.now() })),
+    [change],
+  );
 
-  const removeGoal = useCallback((id: string) => {
-    setData((d) => ({ ...d, goals: d.goals.filter((g) => g.id !== id) }));
-  }, [setData]);
+  const saveGoal = useCallback(
+    (goal: Goal) =>
+      changeMeta((d) => ({
+        goals: d.goals.some((g) => g.id === goal.id) ? d.goals.map((g) => (g.id === goal.id ? goal : g)) : [...d.goals, goal],
+      })),
+    [changeMeta],
+  );
+  const removeGoal = useCallback((id: string) => changeMeta((d) => ({ goals: d.goals.filter((g) => g.id !== id) })), [changeMeta]);
 
-  const updateSettings = useCallback((patch: Partial<Settings>) => {
-    setData((d) => ({ ...d, settings: { ...d.settings, ...patch } }));
-  }, [setData]);
+  const saveHabit = useCallback(
+    (h: Habit) =>
+      changeMeta((d) => ({
+        habits: d.habits.some((x) => x.id === h.id) ? d.habits.map((x) => (x.id === h.id ? h : x)) : [...d.habits, h],
+      })),
+    [changeMeta],
+  );
+  const removeHabit = useCallback(
+    (id: string) =>
+      changeMeta((d) => ({
+        habits: d.habits.filter((h) => h.id !== id),
+        goals: d.goals.filter((g) => !(g.source === "habit" && g.habitId === id)),
+      })),
+    [changeMeta],
+  );
 
-  return { data, sync, setData, updateDay, toggleCheck, saveGoal, removeGoal, updateSettings };
+  const updateSettings = useCallback(
+    (patch: Partial<Settings>) => changeMeta((d) => ({ settings: { ...d.settings, ...patch } })),
+    [changeMeta],
+  );
+
+  /** Replace everything (restore a backup, or erase). Wins over older copies on other devices. */
+  const replaceAll = useCallback(
+    (next: Data) => {
+      const now = Date.now();
+      const days: Record<string, DayLog> = {};
+      for (const [k, v] of Object.entries(next.days)) days[k] = { ...v, _t: now };
+      change(() => ({ ...next, days, metaAt: now, resetAt: now }));
+    },
+    [change],
+  );
+
+  const ready = sync !== "connecting";
+
+  return {
+    data,
+    sync,
+    ready,
+    replaceAll,
+    updateDay,
+    setCheck,
+    toggleCheck,
+    saveGoal,
+    removeGoal,
+    saveHabit,
+    removeHabit,
+    updateSettings,
+  };
 }
 
 /** Did this day count towards the goal? */
@@ -225,6 +327,8 @@ export function dayCounts(goal: Goal, day: DayLog | undefined, settings: Setting
       return day.mood !== undefined;
     case "custom":
       return !!day.checks?.[goal.id];
+    case "habit":
+      return !!goal.habitId && !!day.checks?.[goal.habitId];
   }
 }
 
@@ -283,4 +387,5 @@ export const SOURCE_LABELS: Record<GoalSource, string> = {
   workout: "Days I work out",
   water: "Days I reach my water goal",
   mood: "Days I log my mood",
+  habit: "Days I mark one of my habits",
 };

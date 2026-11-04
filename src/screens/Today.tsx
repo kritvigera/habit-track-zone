@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { MOODS, useData } from "../lib/store";
+import { Habit, MOODS, newId, useData } from "../lib/store";
 import { addDays, friendlyDate, todayKey } from "../lib/dates";
 
 interface Props {
@@ -9,7 +9,7 @@ interface Props {
 }
 
 export default function Today({ store, date, setDate }: Props) {
-  const { data, updateDay, toggleCheck } = store;
+  const { data, updateDay } = store;
   const day = data.days[date] ?? {};
   const waterGoal = data.settings.waterGoal;
   const water = day.water ?? 0;
@@ -17,9 +17,6 @@ export default function Today({ store, date, setDate }: Props) {
   const isToday = date === todayKey();
   const [otherOpen, setOtherOpen] = useState(false);
   const PRESETS = [5, 10, 15, 20, 30];
-  const customGoals = data.goals.filter(
-    (g) => g.source === "custom" && date >= g.start && date <= g.end,
-  );
 
   return (
     <>
@@ -157,29 +154,104 @@ export default function Today({ store, date, setDate }: Props) {
         )}
       </section>
 
-      {customGoals.length > 0 && (
-        <section className="card">
-          <h2>Also today</h2>
-          <ul className="checklist">
-            {customGoals.map((g) => {
-              const on = !!day.checks?.[g.id];
-              return (
-                <li key={g.id}>
-                  <button
-                    className={"check" + (on ? " check--on" : "")}
-                    role="checkbox"
-                    aria-checked={on}
-                    onClick={() => toggleCheck(date, g.id)}
-                  >
-                    <span className="check__box" />
-                    {g.name}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      )}
+      <HabitsCard store={store} date={date} />
     </>
+  );
+}
+
+function HabitsCard({ store, date }: { store: Props["store"]; date: string }) {
+  const { data, toggleCheck, saveHabit } = store;
+  const day = data.days[date] ?? {};
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState("");
+  const [kind, setKind] = useState<Habit["kind"]>("do");
+  const customGoals = data.goals.filter((g) => g.source === "custom" && date >= g.start && date <= g.end);
+  const items = [
+    ...customGoals.map((g) => ({ id: g.id, name: g.name, kind: "do" as const })),
+    ...data.habits,
+  ];
+
+  return (
+    <section className="card">
+      <div className="row">
+        <h2>Habits</h2>
+        {!adding && (
+          <button className="link" onClick={() => setAdding(true)}>
+            + add habit
+          </button>
+        )}
+      </div>
+
+      {items.length === 0 && !adding && (
+        <p className="quiet">
+          Mark anything else here: “Read”, “Walked outside”, or things to avoid like “Ate unhealthy”.
+        </p>
+      )}
+
+      {items.length > 0 && (
+        <ul className="checklist">
+          {items.map((h) => {
+            const on = !!day.checks?.[h.id];
+            return (
+              <li key={h.id}>
+                <button
+                  className={"check" + (h.kind === "avoid" ? " check--avoid" : "") + (on ? " check--on" : "")}
+                  role="checkbox"
+                  aria-checked={on}
+                  onClick={() => toggleCheck(date, h.id)}
+                >
+                  <span className="check__box" />
+                  {h.name}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {adding && (
+        <form
+          className="form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!name.trim()) return;
+            saveHabit({ id: newId(), name: name.trim(), kind });
+            setName("");
+            setKind("do");
+            setAdding(false);
+          }}
+        >
+          <input
+            id="new-habit"
+            className="field"
+            placeholder="e.g. Read, or Ate unhealthy"
+            value={name}
+            autoFocus
+            onChange={(e) => setName(e.target.value)}
+          />
+          <div className="chips">
+            <button type="button" className={"chip" + (kind === "do" ? " chip--on" : "")} onClick={() => setKind("do")}>
+              something to do
+            </button>
+            <button
+              type="button"
+              className={"chip" + (kind === "avoid" ? " chip--on chip--avoid" : "")}
+              onClick={() => setKind("avoid")}
+            >
+              something to avoid
+            </button>
+          </div>
+          <div className="form__actions">
+            <span style={{ flex: 1 }} />
+            <button type="button" className="pill" onClick={() => setAdding(false)}>
+              Cancel
+            </button>
+            <button type="submit" className="pill pill--solid" disabled={!name.trim()}>
+              Add
+            </button>
+          </div>
+        </form>
+      )}
+    </section>
   );
 }
