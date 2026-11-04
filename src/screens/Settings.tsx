@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { parseData, useData } from "../lib/store";
+import { claudeRuntime, parseData, useData } from "../lib/store";
 import { todayKey } from "../lib/dates";
 import ConfirmButton from "../lib/ConfirmButton";
 import { appUrl, quickActions } from "../lib/actions";
@@ -11,6 +11,12 @@ interface Props {
 export default function SettingsScreen({ store }: Props) {
   const { data, sync, replaceAll, updateSettings, removeHabit } = store;
   const [copied, setCopied] = useState("");
+  // Widget links only reach your data on the claude.ai version, which saves to your account.
+  // A Home Screen web app keeps its storage apart from Safari, where Shortcuts open links.
+  const onClaude = !!claudeRuntime()?.use;
+  const standalone =
+    (navigator as unknown as { standalone?: boolean }).standalone === true ||
+    window.matchMedia?.("(display-mode: standalone)").matches;
   const fileRef = useRef<HTMLInputElement>(null);
   const [msg, setMsg] = useState("");
   const [pending, setPending] = useState<ReturnType<typeof parseData> | null>(null);
@@ -173,6 +179,13 @@ export default function SettingsScreen({ store }: Props) {
 
       <section className="card">
         <h2>Home Screen widget</h2>
+        {!onClaude ? (
+          <p className="quiet">
+            iPhone keeps a Home Screen app’s data separate from Safari, and widget buttons open Safari, so they can’t log
+            into this app. Keep the app icon near your thumb instead: it opens straight to Today.
+          </p>
+        ) : (
+          <>
         <p className="quiet">
           Use the Shortcuts app to put one-tap buttons on your Home Screen. Each button logs something for today and
           opens this tracker for a moment, so you can see it worked.
@@ -216,8 +229,11 @@ export default function SettingsScreen({ store }: Props) {
         {copied.startsWith("fail:") && (
           <p className="quiet">Copying isn’t allowed here. Press and hold the link text to select and copy it.</p>
         )}
+          </>
+        )}
       </section>
 
+      {!standalone && (
       <section className="card">
         <h2>Add to Home Screen</h2>
         <p className="quiet">
@@ -225,6 +241,7 @@ export default function SettingsScreen({ store }: Props) {
           app.
         </p>
       </section>
+      )}
 
       <section className="card">
         <ConfirmButton
